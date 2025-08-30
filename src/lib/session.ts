@@ -40,7 +40,8 @@ export async function createSession(userId: string, username: string) {
   const session = await encrypt({ userId, username, expires });
 
   // Save the session in a cookie
-  cookies().set('session', session, {
+  const cookieStore = await cookies();
+  cookieStore.set('session', session, {
     expires,
     httpOnly: true,
     path: '/',
@@ -48,22 +49,29 @@ export async function createSession(userId: string, username: string) {
 }
 
 export async function getSession() {
-  const sessionCookie = cookies().get('session')?.value;
-  if (!sessionCookie) return null;
-  
-  const payload = await decrypt(sessionCookie);
-  if (!payload) return null;
+  try {
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get('session')?.value;
+    if (!sessionCookie) return null;
+    
+    const payload = await decrypt(sessionCookie);
+    if (!payload) return null;
 
-  return {
-    isLoggedIn: true,
-    user: {
-      userId: payload.userId,
+    return {
+      isLoggedIn: true,
+      user: {
+        userId: payload.userId,
       username: payload.username,
     },
   };
+  } catch (error) {
+    console.error('Session error:', error);
+    return null;
+  }
 }
 
 export async function logout() {
   // Destroy the session
-  cookies().set('session', '', { expires: new Date(0), path: '/' });
+  const cookieStore = await cookies();
+  cookieStore.set('session', '', { expires: new Date(0), path: '/' });
 }

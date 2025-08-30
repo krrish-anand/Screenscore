@@ -72,7 +72,14 @@ export async function POST(req: NextRequest) {
             await watchlistCollection.updateOne(filter, update, { upsert: true });
 
         } else if (action === 'remove') {
-            const update = { $pull: { movies: movieIdentifier } };
+            const update = { 
+                $pull: { 
+                    movies: { 
+                        tmdbId: tmdbId, 
+                        mediaType: mediaType 
+                    } 
+                } 
+            } as any;
             await watchlistCollection.updateOne(filter, update);
         } else {
              return NextResponse.json({ message: 'Invalid action' }, { status: 400 });

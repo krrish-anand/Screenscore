@@ -13,6 +13,38 @@ if (!TMDB_API_KEY) {
   throw new Error('TMDB_API_KEY is not defined in your environment variables');
 }
 
+// Log API key status (without exposing the actual key)
+console.log('TMDB API Key status:', TMDB_API_KEY ? `Present (${TMDB_API_KEY.substring(0, 4)}...)` : 'Missing');
+
+// Helper function for API requests with retry logic
+async function fetchWithRetry(url: string, retries = 3): Promise<Response> {
+  console.log(`Attempting to fetch: ${url.replace(TMDB_API_KEY!, '[API_KEY]')}`);
+  
+  for (let i = 0; i < retries; i++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased to 15 seconds
+      
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'ScreenScore/1.0'
+        }
+      });
+      
+      clearTimeout(timeoutId);
+      console.log(`Fetch successful on attempt ${i + 1}`);
+      return response;
+    } catch (error) {
+      console.warn(`Fetch attempt ${i + 1} failed:`, error);
+      if (i === retries - 1) throw error; // Last attempt, re-throw error
+      await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1))); // Increased wait time
+    }
+  }
+  throw new Error('All fetch attempts failed');
+}
+
 interface TmdbMedia {
   id: number;
   title?: string; // For movies
@@ -96,7 +128,7 @@ async function getGenreMap(mediaType: MediaType | 'all'): Promise<Map<number, st
       throw new Error(`Failed to fetch ${mediaType} genres: ${response.statusText}`);
     }
     const data = await response.json();
-    const newGenreMap = new Map(data.genres.map((genre: TmdbGenre) => [genre.id, genre.name]));
+    const newGenreMap: Map<number, string> = new Map(data.genres.map((genre: TmdbGenre) => [genre.id, genre.name]));
     
     if (isMovie) {
       movieGenreMap = newGenreMap;
@@ -106,7 +138,7 @@ async function getGenreMap(mediaType: MediaType | 'all'): Promise<Map<number, st
     return newGenreMap;
   } catch (error) {
     console.error(`Error fetching ${mediaType} genres:`, error);
-    return new Map();
+    return new Map<number, string>();
   }
 }
 
@@ -271,14 +303,34 @@ export async function getPopularMedia(mediaType: 'movie' | 'tv' | 'all', page: n
     }
     try {
         const genres = await getGenreMap(mediaType);
-        const response = await fetch(`${TMDB_API_BASE_URL}/${mediaType}/popular?api_key=${TMDB_API_KEY}&language=en-US&page=${page}&watch_region=IN`);
+        
+        const response = await fetchWithRetry(
+            `${TMDB_API_BASE_URL}/${mediaType}/popular?api_key=${TMDB_API_KEY}&language=en-US&page=${page}&watch_region=IN`
+        );
+        
         if (!response.ok) {
-            throw new Error(`Failed to fetch popular ${mediaType}: ${response.statusText}`);
+            throw new Error(`Failed to fetch popular ${mediaType}: ${response.status} ${response.statusText}`);
         }
+        
         const data = await response.json();
         return data.results.map((item: TmdbMedia) => tmdbMediaToAppMedia(item, genres, mediaType));
     } catch (error) {
         console.error(`Error fetching popular ${mediaType}:`, error);
+        
+        // Log more details about the error
+        if (error instanceof Error) {
+            console.error('Error name:', error.name);
+            console.error('Error message:', error.message);
+            if ('cause' in error) {
+                console.error('Error cause:', error.cause);
+            }
+        }
+        
+        // Check if it's a network error
+        if (error instanceof TypeError && error.message.includes('fetch failed')) {
+            console.error('Network error detected. Please check your internet connection and firewall settings.');
+        }
+        
         return [];
     }
 }
