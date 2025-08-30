@@ -123,9 +123,9 @@ async function getGenreMap(mediaType: MediaType | 'all'): Promise<Map<number, st
 
   try {
     const url = `${TMDB_API_BASE_URL}/genre/${mediaType}/list?api_key=${TMDB_API_KEY}&language=en-US`;
-    const response = await fetch(url);
+    const response = await fetchWithRetry(url);
     if (!response.ok) {
-      throw new Error(`Failed to fetch ${mediaType} genres: ${response.statusText}`);
+      throw new Error(`Failed to fetch ${mediaType} genres: ${response.status} ${response.statusText}`);
     }
     const data = await response.json();
     const newGenreMap: Map<number, string> = new Map(data.genres.map((genre: TmdbGenre) => [genre.id, genre.name]));
@@ -224,11 +224,11 @@ export async function searchMedia(query: string, page: number = 1): Promise<Medi
     const genres = await getGenreMap('all');
     let url = `${TMDB_API_BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&page=${page}`;
     
-    const response = await fetch(url);
+    const response = await fetchWithRetry(url);
     if (!response.ok) {
       const errorData = await response.json();
       console.error('TMDb API Error:', errorData);
-      throw new Error(`Failed to search media: ${response.statusText}`);
+      throw new Error(`Failed to search media: ${response.status} ${response.statusText}`);
     }
     const data = await response.json();
     const filteredResults = data.results.filter((item: TmdbMedia) => (item.media_type === 'movie' || item.media_type === 'tv') && item.poster_path);
@@ -389,12 +389,12 @@ export async function getMediaDetails(mediaId: number, mediaType: MediaType): Pr
     try {
         const genres = await getGenreMap(mediaType);
         const [detailsResponse, reviews] = await Promise.all([
-             fetch(`${TMDB_API_BASE_URL}/${mediaType}/${mediaId}?api_key=${TMDB_API_KEY}&append_to_response=videos,credits,watch/providers`),
+             fetchWithRetry(`${TMDB_API_BASE_URL}/${mediaType}/${mediaId}?api_key=${TMDB_API_KEY}&append_to_response=videos,credits,watch/providers`),
              getReviewsForMedia(mediaId, mediaType)
         ]);
 
         if (!detailsResponse.ok) {
-            throw new Error(`Failed to fetch ${mediaType} details: ${detailsResponse.statusText}`);
+            throw new Error(`Failed to fetch ${mediaType} details: ${detailsResponse.status} ${detailsResponse.statusText}`);
         }
         const data = await detailsResponse.json();
         
@@ -436,15 +436,30 @@ export async function getMediaDetails(mediaId: number, mediaType: MediaType): Pr
 
     } catch (error) {
         console.error(`Error fetching ${mediaType} details:`, error);
+        
+        // Log more details about the error
+        if (error instanceof Error) {
+            console.error('Error name:', error.name);
+            console.error('Error message:', error.message);
+            if ('cause' in error) {
+                console.error('Error cause:', error.cause);
+            }
+        }
+        
+        // Check if it's a network error
+        if (error instanceof TypeError && error.message.includes('fetch failed')) {
+            console.error('Network error detected. Please check your internet connection and firewall settings.');
+        }
+        
         return null;
     }
 }
 
 export async function getPersonDetails(personId: number): Promise<Person | null> {
     try {
-        const response = await fetch(`${TMDB_API_BASE_URL}/person/${personId}?api_key=${TMDB_API_KEY}`);
+        const response = await fetchWithRetry(`${TMDB_API_BASE_URL}/person/${personId}?api_key=${TMDB_API_KEY}`);
         if (!response.ok) {
-            throw new Error(`Failed to fetch person details: ${response.statusText}`);
+            throw new Error(`Failed to fetch person details: ${response.status} ${response.statusText}`);
         }
         const data: TmdbPerson = await response.json();
         
@@ -463,9 +478,9 @@ export async function getPersonCredits(personId: number): Promise<MediaItem[]> {
     try {
         const allGenres = await getGenreMap('all');
 
-        const response = await fetch(`${TMDB_API_BASE_URL}/person/${personId}/combined_credits?api_key=${TMDB_API_KEY}`);
+        const response = await fetchWithRetry(`${TMDB_API_BASE_URL}/person/${personId}/combined_credits?api_key=${TMDB_API_KEY}`);
         if (!response.ok) {
-            throw new Error(`Failed to fetch person credits: ${response.statusText}`);
+            throw new Error(`Failed to fetch person credits: ${response.status} ${response.statusText}`);
         }
         const data = await response.json();
 
